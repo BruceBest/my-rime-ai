@@ -181,6 +181,10 @@ Output format (strict JSON, no other content):
         apiUrl = apiUrl + '/v1/chat/completions'
       }
 
+      // 推理模型需要更多 token（reasoning 也消耗 max_tokens）
+      const isReasoningModel = /mimo|reasoning|o1|o3|deepseek-r/i.test(config.model || '')
+      const maxTokens = isReasoningModel ? 1024 : 200
+
       const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -194,7 +198,7 @@ Output format (strict JSON, no other content):
             { role: 'user', content: userMessage }
           ],
           temperature: mode === 'en' ? 0.5 : 0.3,
-          max_tokens: 200
+          max_tokens: maxTokens
         })
       })
 
@@ -205,7 +209,20 @@ Output format (strict JSON, no other content):
 
       const data = await response.json()
       console.log('[AI IME] Full API response data:', JSON.stringify(data, null, 2))
-      const content = data.choices?.[0]?.message?.content || '{"candidates":[]}'
+
+      const choice = data.choices?.[0]?.message || {}
+      let content = choice.content || ''
+
+      // 推理模型可能把输出放在 reasoning_content 而 content 为空
+      if (!content && choice.reasoning_content) {
+        console.log('[AI IME] content empty, trying reasoning_content')
+        content = choice.reasoning_content
+      }
+
+      if (!content) {
+        console.warn('[AI IME] Both content and reasoning_content are empty. finish_reason:', data.choices?.[0]?.finish_reason)
+        return []
+      }
 
       console.log('[AI IME] Raw API response:', content)
 
