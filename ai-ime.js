@@ -139,6 +139,52 @@ Rules:
 Output format (strict JSON, no other content):
 {"candidates": ["word1", "word2", ...]}`
 
+  // ===== 从推理文本中提取候选词 =====
+  function extractWordsFromText (text) {
+    const seen = new Set()
+    const results = []
+
+    // 策略1: 提取引号包裹的词 "word" 或 'word'
+    const quoted = text.match(/["'"']([a-zA-Z\u4e00-\u9fff][a-zA-Z\u4e00-\u9fff\s,!?.'-]{0,30})["'"']/g)
+    if (quoted) {
+      for (const q of quoted) {
+        const word = q.slice(1, -1).trim()
+        if (word.length >= 2 && !seen.has(word.toLowerCase())) {
+          seen.add(word.toLowerCase())
+          results.push(word)
+        }
+      }
+    }
+
+    // 策略2: 提取编号列表 "1. word" 或 "- word"
+    const listed = text.match(/(?:^|\n)\s*(?:\d+\.|-|\*)\s*["'"']?([a-zA-Z\u4e00-\u9fff][a-zA-Z\u4e00-\u9fff\s,!?.'-]{1,30}?)["'"']?\s*(?:[-–—:：]|$)/gm)
+    if (listed) {
+      for (const item of listed) {
+        const word = item.replace(/^\s*(?:\d+\.|-|\*)\s*/, '').replace(/["'"']/g, '').trim()
+        if (word.length >= 2 && !seen.has(word.toLowerCase())) {
+          seen.add(word.toLowerCase())
+          results.push(word)
+        }
+      }
+    }
+
+    // 策略3: 提取 candidates: [...] 或 JSON array
+    const arrMatch = text.match(/\[[\s\S]*?\]/)
+    if (arrMatch) {
+      try {
+        const arr = JSON.parse(arrMatch[0])
+        for (const w of arr) {
+          if (typeof w === 'string' && !seen.has(w.toLowerCase())) {
+            seen.add(w.toLowerCase())
+            results.push(w)
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    return results.slice(0, 10)
+  }
+
   // ===== AI 候选词生成 =====
   async function generateAICandidates (input, context) {
     const config = getConfig()
@@ -182,8 +228,8 @@ Output format (strict JSON, no other content):
       }
 
       // 推理模型需要更多 token（reasoning 也消耗 max_tokens）
-      const isReasoningModel = /mimo|reasoning|o1|o3|deepseek-r/i.test(config.model || '')
-      const maxTokens = isReasoningModel ? 1024 : 200
+      const isReasoningModel = /mimo.*pro|reasoning|o1|o3|deepseek-r/i.test(config.model || '')
+      const maxTokens = isReasoningModel ? 4096 : 200
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -217,6 +263,25 @@ Output format (strict JSON, no other content):
       if (!content && choice.reasoning_content) {
         console.log('[AI IME] content empty, trying reasoning_content')
         content = choice.reasoning_content
+      }
+
+      // 推理模型的 reasoning_content 是自由文本思维过程
+      // 尝试从中提取 JSON 或引号包裹的词
+      if (content && !content.trim().startsWith('{') && !content.trim().startsWith('[')) {
+        console.log('[AI IME] Non-JSON content detected, extracting words from reasoning')
+        const candidates = extractWordsFromText(content)
+        if (candidates.length > 0) {
+          console.log('[AI IME] Extracted from reasoning:', candidates)
+          const marked = mode === 'en'
+            ? candidates.map(c => ({ text: c, isAI: true, lang: 'en' }))
+            : candidates
+          if (cache.size >= CACHE_SIZE) {
+            const firstKey = cache.keys().next().value
+            if (firstKey) cache.delete(firstKey)
+          }
+          cache.set(cacheKey, marked)
+          return marked
+        }
       }
 
       if (!content) {
@@ -368,6 +433,9 @@ Output format (strict JSON, no other content):
         <input type="text" id="ai-model" value="${config.model || DEFAULT_MODEL}" 
           style="width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;"
           placeholder="deepseek/deepseek-chat">
+        <div style="font-size: 11px; color: #888; margin-top: 2px;">
+          ⚡ Recommended: non-reasoning models (deepseek/deepseek-chat, mimo-v2, mimo-v2.5-flash) for fast response
+        </div>
       </div>
       <div style="display: flex; gap: 8px;">
         <button id="ai-test" style="padding: 6px 12px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">
