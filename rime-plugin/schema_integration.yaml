@@ -1,0 +1,20 @@
+# schema_integration.yaml
+# 示例：如何在你的 .schema.yaml 中启用 AI 候选词
+#
+# 在 engine/filters 列表中添加 lua_filter@ai_candidate：
+
+engine:
+  translators:
+    - punct_translator
+    - table_translator
+    - lua_translator@date_translator     # 你已有的 translator
+
+  filters:
+    - lua_filter@ai_candidate            # ← 添加这行（AI 候选词）
+    - uniquifier
+    - lua_filter@other_filter            # 你已有的 filter
+
+# 注意：
+# - lua_filter@ai_candidate 放在 uniquifier 之前
+# - 这样 AI 候选会被去重处理
+# - RIME 原生候选先显示，AI 候选后显示（带 🤖 标记）

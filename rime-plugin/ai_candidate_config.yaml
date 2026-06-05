@@ -1,0 +1,18 @@
+# ai_candidate_config.yaml
+# AI 候选词配置文件
+# 放到 RIME 用户目录（与 custom.yaml 同级）
+
+# API 设置
+api_url: "https://api.deepseek.com/v1/chat/completions"
+api_key: "sk-your-api-key-here"
+model: "deepseek-chat"
+
+# 功能设置
+enabled: true
+max_candidates: 5        # AI 候选词最大数量
+timeout: 3               # API 超时秒数
+min_input_len: 1         # 最少拼音长度才触发 AI
+
+# 如果使用 OpenRouter:
+# api_url: "https://openrouter.ai/api/v1/chat/completions"
+# model: "deepseek/deepseek-chat"

@@ -1,0 +1,4 @@
+-- rime.lua（追加内容）
+-- 在你现有的 rime.lua 文件末尾添加这行：
+
+ai_candidate = require("ai_candidate")
