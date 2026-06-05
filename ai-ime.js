@@ -204,19 +204,56 @@ Output format (strict JSON, no other content):
       }
 
       const data = await response.json()
+      console.log('[AI IME] Full API response data:', JSON.stringify(data, null, 2))
       const content = data.choices?.[0]?.message?.content || '{"candidates":[]}'
 
-      // 提取 JSON（兼容 markdown code block）
-      let jsonStr = content
+      console.log('[AI IME] Raw API response:', content)
+
+      // 提取 JSON（兼容 markdown code block、前后多余文字）
+      let jsonStr = content.trim()
+
+      // 尝试 markdown code block
       const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/)
       if (jsonMatch) {
         jsonStr = jsonMatch[1].trim()
       }
 
-      const parsed = JSON.parse(jsonStr)
+      // 尝试找第一个 { 到最后一个 }
+      if (!jsonStr.startsWith('{')) {
+        const start = jsonStr.indexOf('{')
+        const end = jsonStr.lastIndexOf('}')
+        if (start !== -1 && end !== -1 && end > start) {
+          jsonStr = jsonStr.slice(start, end + 1)
+        }
+      }
+
+      let parsed
+      try {
+        parsed = JSON.parse(jsonStr)
+      } catch (parseErr) {
+        console.warn('[AI IME] JSON parse failed, trying array extraction:', parseErr.message)
+        console.warn('[AI IME] Raw content was:', content)
+        // 尝试直接提取 JSON 数组
+        const arrMatch = content.match(/\[[\s\S]*?\]/)
+        if (arrMatch) {
+          parsed = { candidates: JSON.parse(arrMatch[0]) }
+        } else {
+          // 最后尝试：按行/逗号分割文本作为候选
+          const words = content.split(/[,\n]+/).map(s => s.replace(/["\[\]{}]/g, '').trim()).filter(Boolean)
+          if (words.length > 0) {
+            parsed = { candidates: words }
+          } else {
+            console.error('[AI IME] Could not extract any candidates from response')
+            return []
+          }
+        }
+      }
+
       const candidates = Array.isArray(parsed)
         ? parsed
         : parsed.candidates || []
+
+      console.log('[AI IME] Parsed candidates:', candidates)
 
       // 英文模式下添加 🤖 标记
       const marked = mode === 'en'
@@ -384,28 +421,29 @@ Output format (strict JSON, no other content):
       statusDiv.style.color = '#666'
 
       const currentConfig = getConfig()
-      let testInput, testLabel
+      if (!currentConfig.apiKey) {
+        statusDiv.textContent = '✗ Please enter an API Key first'
+        statusDiv.style.color = '#f44336'
+        return
+      }
 
+      let testInput
       if (currentConfig.mode === 'en') {
         testInput = 'hello wor'
-        testLabel = 'English'
       } else if (currentConfig.mode === 'zh') {
         testInput = 'nh'
-        testLabel = '中文'
       } else {
-        // auto: test both
         testInput = 'hello wor'
-        testLabel = 'auto'
       }
 
       try {
         const candidates = await generateAICandidates(testInput, '')
         if (candidates.length > 0) {
           const preview = candidates.slice(0, 3).map(c => c.text || c).join(', ')
-          statusDiv.textContent = `✓ Connected! (${testLabel}) Preview: ${preview}`
+          statusDiv.textContent = `✓ Connected! (${candidates.length} results) Preview: ${preview}`
           statusDiv.style.color = '#4CAF50'
         } else {
-          statusDiv.textContent = '✗ Failed — check config'
+          statusDiv.innerHTML = '✗ No candidates returned.<br><span style="font-size:11px">Check console (F12) for [AI IME] logs</span>'
           statusDiv.style.color = '#f44336'
         }
       } catch (e) {
